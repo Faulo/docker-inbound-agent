@@ -6,8 +6,10 @@ Jenkins agents. Both variants extend the official
 image and use Java 21.
 
 The image is intended for Jenkins jobs that need Git, Unity Version Control
-(the `cm` command), and access to a Docker daemon supplied by the host. It does
-not run a Docker daemon of its own.
+(the `cm` command), and access to a Docker daemon supplied by the host. This
+includes Jenkinsfiles that use the Docker Pipeline plugin's
+`docker.image("image").inside { ... }` syntax. The image contains only the
+Docker client; it does not contain or run a Docker daemon.
 
 ## Image variants
 
@@ -16,18 +18,29 @@ not run a Docker daemon of its own.
 | Linux | `linux/Dockerfile` | `jenkins/inbound-agent:latest-jdk21` | `linux` |
 | Windows | `windows/Dockerfile` | `jenkins/inbound-agent:jdk21-windowsservercore-ltsc2019` | `windows` |
 
-The variants share the same core purpose, but their installed tools are not
-currently identical:
+Both variants provide the same agent-level capabilities:
 
 | Capability | Linux | Windows |
 | --- | --- | --- |
 | Jenkins inbound-agent runtime | Yes | Yes |
 | Java 21 | Yes | Yes |
 | Git and Git LFS | Yes | Yes |
-| Unity Version Control CLI (`cm`) | Core client package | Cloud Edition installer |
-| Docker CLI | Docker APT repository | Pinned static archive |
-| Docker Compose | Yes | No |
-| Additional command-line tools | `curl`, `wget`, `zip`, `unzip`, `nano`, `pciutils`, `tini` | `curl.exe` from Windows |
+| Unity Version Control 11 CLI (`cm`) | Core client package | Client installer |
+| Docker CLI 29 | Client binary only | Client binary only |
+
+Docker Compose is intentionally not installed. The Jenkins Docker Pipeline
+plugin uses the Docker CLI directly and does not require Compose for
+`docker.image(...).inside { ... }`.
+
+Both Dockerfiles follow Docker major version 29 and Unity Version Control major
+version 11. Each platform resolves and installs its newest available release in
+that major line during the build. Linux and Windows versions can differ when a
+release is not yet available for both platforms, but neither image silently
+upgrades to a new major version.
+
+Remote package indexes are explicit Dockerfile inputs, so publishing a new
+compatible release invalidates the installation layer even when a previous
+build cache is available. Both variants currently target x86-64 hosts.
 
 The Linux container connects to
 `unix:///var/run/docker.sock`. The Windows container connects to
@@ -79,7 +92,9 @@ daemon.
 
 The root `.env` defines the local image name, test command, shared run options,
 and platform-specific run options. The checked-in test currently verifies that
-Java starts successfully.
+Java starts successfully and reports its version. The shared test runner
+executes the command through the platform's shell so the same command works
+with both upstream agent entrypoints.
 
 Run the configured test through:
 
@@ -104,6 +119,11 @@ In addition to the Jenkins connection settings, mount the platform's Docker
 endpoint if jobs need to invoke Docker. Any job using this image can then use
 the host daemon through the included Docker CLI.
 
+For `docker.image(...).inside { ... }`, the Jenkins agent and Docker daemon
+must also see the same workspace filesystem. Jenkins detects that the agent is
+running in a container and uses `--volumes-from` to share its workspace with
+the nested build container.
+
 Refer to the
 [`jenkins/inbound-agent` documentation](https://github.com/jenkinsci/docker-agent)
 for the supported Jenkins connection modes and launch examples.
@@ -115,10 +135,13 @@ for the supported Jenkins connection modes and launch examples.
 - `JAVA_OPTS` disables the Jenkins directory browser Content Security Policy.
   This supports trusted build artifacts that contain active content, but it
   weakens browser-side protection.
-- The Linux Plastic package repository is currently configured as trusted and
-  permits an unauthenticated package install.
-- The Linux Docker client follows the current stable APT repository version.
-  The Windows Docker client is pinned in its Dockerfile.
+- Git treats every repository path as a safe directory. This avoids ownership
+  checks for host-mounted workspaces but removes that Git security boundary.
+- Linux installs Docker from Docker's signed APT repository. The Windows Unity
+  Version Control installer must have a valid Unity Authenticode signature.
+- The Linux Unity Version Control repository currently requires an
+  unauthenticated APT install because its legacy repository signature is
+  rejected by current Debian policy.
 
 These defaults are suitable only for trusted Jenkins workloads and should be
 reviewed before exposing agents to untrusted jobs.
@@ -127,5 +150,9 @@ reviewed before exposing agents to untrusted jobs.
 
 The GitHub Actions workflow publishes the configured image through the shared
 `Faulo/workflows-docker` workflow. It runs when either Dockerfile changes, can
-be started manually, and runs monthly to pick up refreshed base images and
-unpinned dependencies.
+be started manually, and runs monthly to pick up refreshed base images.
+
+The shared workflow persists Linux BuildKit layers in the GitHub Actions cache.
+For Windows, it pulls the previously published platform image and passes it to
+Docker as the build cache source. Local Docker builds use each context's normal
+layer cache automatically.

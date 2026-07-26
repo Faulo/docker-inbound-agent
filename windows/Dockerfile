@@ -2,6 +2,9 @@ FROM jenkins/inbound-agent:jdk21-windowsservercore-ltsc2019
 
 SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell", "-NonInteractive", "-NoProfile", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
 
+ARG DOCKER_MAJOR=29
+ARG PLASTIC_MAJOR=11
+
 # Jenkins
 USER ContainerAdministrator
 WORKDIR C:\\jenkins
@@ -10,21 +13,47 @@ ENV JAVA_OPTS="-Dhudson.model.DirectoryBrowserSupport.CSP=\"\""
 # Git
 RUN git config --global --add safe.directory *
 
-# Docker
-ENV DOCKER_VERSION=29.4.0
+# Docker CLI
 ENV DOCKER_HOST=npipe:////./pipe/docker_engine
 
-RUN curl.exe -fsSL "https://download.docker.com/win/static/stable/x86_64/docker-$env:DOCKER_VERSION.zip" -o docker.zip; \
+ADD https://download.docker.com/win/static/stable/x86_64/ docker-versions.html
+
+RUN $dockerPattern = 'docker-(' + $env:DOCKER_MAJOR + '\.\d+\.\d+)\.zip'; \
+    $dockerVersion = [regex]::Matches((Get-Content docker-versions.html -Raw), $dockerPattern) | \
+      ForEach-Object { $_.Groups[1].Value } | Sort-Object { [version]$_ } | Select-Object -Last 1; \
+    if (-not $dockerVersion) { throw ('No Docker ' + $env:DOCKER_MAJOR + ' release found') }; \
+    $dockerUrl = 'https://download.docker.com/win/static/stable/x86_64/docker-' + $dockerVersion + '.zip'; \
+    curl.exe -fsSL $dockerUrl -o docker.zip; \
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to download Docker' }; \
     Expand-Archive -Path docker.zip -DestinationPath . -Force; \
-    Remove-Item docker.zip -Force; \
-    "[Environment]::SetEnvironmentVariable('PATH', 'C:\\jenkins\\docker;'+$env:PATH, [EnvironmentVariableTarget]::Machine)"
+    Remove-Item docker.zip,docker-versions.html -Force; \
+    New-Item -ItemType Directory -Path 'C:\\Program Files\\Docker' -Force | Out-Null; \
+    Move-Item -Path docker\\docker.exe -Destination 'C:\\Program Files\\Docker\\docker.exe'; \
+    Remove-Item docker -Recurse -Force; \
+    [Environment]::SetEnvironmentVariable('PATH', 'C:\\Program Files\\Docker;'+$env:PATH, [EnvironmentVariableTarget]::Machine); \
+    $installedVersion = & 'C:\\Program Files\\Docker\\docker.exe' --version; \
+    if ($LASTEXITCODE -ne 0 -or $installedVersion -notmatch ('^Docker version ' + $env:DOCKER_MAJOR + '\.')) { throw ('Docker smoke check failed: ' + $installedVersion) }; \
+    $installedVersion
 
-# Plastic
-ARG PLASTIC_URL=https://www.plasticscm.com/download/downloadinstaller/last/plasticscm/windows/cloudedition
+# Unity Version Control
+ADD https://www.plasticscm.com/plasticrepo/stable/debian/Packages plastic-packages
 
-RUN curl.exe -fsSL $env:PLASTIC_URL -o plastic-installer.exe; \
-    Start-Process \
+RUN $plasticPattern = '(?m)^Version:\s*(' + $env:PLASTIC_MAJOR + '\.\S+)\s*$'; \
+    $plasticVersion = [regex]::Matches((Get-Content plastic-packages -Raw), $plasticPattern) | \
+      ForEach-Object { $_.Groups[1].Value } | Sort-Object { [version]$_ } | Select-Object -Last 1; \
+    if (-not $plasticVersion) { throw ('No Unity Version Control ' + $env:PLASTIC_MAJOR + ' release found') }; \
+    $plasticUrl = 'https://www.plasticscm.com/download/downloadinstaller/' + $plasticVersion + '/plasticscm/windows/client?flags=None'; \
+    curl.exe -fsSL $plasticUrl -o plastic-installer.exe; \
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to download Unity Version Control' }; \
+    $signature = Get-AuthenticodeSignature plastic-installer.exe; \
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Unity Technologies') { throw 'Unity Version Control signature verification failed' }; \
+    $process = Start-Process \
       -FilePath plastic-installer.exe \
       -ArgumentList '--mode unattended --unattendedmodeui none' \
-      -Wait -NoNewWindow; \
-    Remove-Item plastic-installer.exe -Force
+      -Wait -NoNewWindow -PassThru; \
+    if ($process.ExitCode -ne 0) { throw "Unity Version Control installer failed with exit code $($process.ExitCode)" }; \
+    Remove-Item plastic-installer.exe,plastic-packages -Force; \
+    $installedVersion = & 'C:\\Program Files\\PlasticSCM5\\client\\cm.exe' version; \
+    if ($LASTEXITCODE -ne 0) { throw 'Unity Version Control smoke check failed' }; \
+    if ($installedVersion -notmatch ('^' + $env:PLASTIC_MAJOR + '\.')) { throw ('Unexpected Unity Version Control version: ' + $installedVersion) }; \
+    $installedVersion
