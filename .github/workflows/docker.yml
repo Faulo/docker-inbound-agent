@@ -4,18 +4,27 @@ on:
     push:
         branches:
             - "main"
+        paths:
+            - "linux/**"
+            - "windows/**"
+            - ".github/workflows/docker.yml"
+    workflow_dispatch:
     schedule:
         - cron: "0 0 1 * *"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: docker-publish
+    cancel-in-progress: false
 
 jobs:
     docker-windows:
         runs-on: windows-2022
-        strategy:
-            fail-fast: true
-            matrix:
-                image:
-                    ["inbound-agent", "unity-agent"]
-                os: ["windows"]
+        timeout-minutes: 180
+        env:
+            IMAGE: ${{secrets.DOCKERHUB_USERNAME}}/inbound-agent
         steps:
             - name: Ensure Docker is running
               shell: pwsh
@@ -26,81 +35,99 @@ jobs:
                   }
 
                   $ready = $false
-                  1..24 | ForEach-Object {
-                    try {
-                      docker version
+                  for ($attempt = 1; $attempt -le 24; $attempt++) {
+                    docker info *> $null
+                    if ($LASTEXITCODE -eq 0) {
                       $ready = $true
-                      return
-                    } catch {
-                      Start-Sleep -Seconds 5
+                      break
                     }
+
+                    Start-Sleep -Seconds 5
                   }
 
                   if (-not $ready) {
                     Get-Service docker
-                    throw "Docker daemon not ready"
+                    throw "Docker daemon not ready after 120 seconds"
                   }
+
+                  docker version
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
             - name: Login to Docker Hub
-              uses: docker/login-action@v4
+              uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-            - name: Build ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-${{matrix.os}}
-              working-directory: ${{matrix.image}}
-              run: docker build --isolation=hyperv . -f Dockerfile.${{matrix.os}}.dockerfile -t ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-${{matrix.os}}
-            - name: Push ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-${{matrix.os}}
-              run: docker image push ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-${{matrix.os}}
+                  username: ${{secrets.DOCKERHUB_USERNAME}}
+                  password: ${{secrets.DOCKERHUB_TOKEN}}
+            - name: Restore Windows image cache
+              continue-on-error: true
+              run: docker image pull "${env:IMAGE}:latest-windows"
+            - name: Build inbound-agent:latest-windows
+              run: >-
+                  docker build --isolation=hyperv
+                  --pull
+                  --cache-from "${env:IMAGE}:latest-windows"
+                  --file windows/Dockerfile
+                  --tag "${env:IMAGE}:latest-windows"
+                  windows
+            - name: Push inbound-agent:latest-windows
+              run: docker image push "${env:IMAGE}:latest-windows"
+
     docker-linux:
         runs-on: ubuntu-24.04
-        strategy:
-            fail-fast: true
-            matrix:
-                image:
-                    ["inbound-agent", "unity-agent"]
-                os: ["linux"]
+        timeout-minutes: 90
+        env:
+            IMAGE: ${{secrets.DOCKERHUB_USERNAME}}/inbound-agent
         steps:
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v4
+            - name: Checkout
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v4
+              uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
             - name: Login to Docker Hub
-              uses: docker/login-action@v4
+              uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-            - name: Build and push ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-${{matrix.os}}
-              uses: docker/build-push-action@v7
+                  username: ${{secrets.DOCKERHUB_USERNAME}}
+                  password: ${{secrets.DOCKERHUB_TOKEN}}
+            - name: Build and push inbound-agent:latest-linux
+              uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
               with:
+                  context: linux
+                  file: linux/Dockerfile
                   push: true
-                  tags: ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-${{matrix.os}}
-                  platforms: ${{matrix.os}}/amd64
-                  context: "{{defaultContext}}:${{matrix.image}}"
-                  file: Dockerfile.${{matrix.os}}.dockerfile
-                  provenance: false
-                  cache-from: type=gha,scope=jenkins-${{env.os}}-${{matrix.image}}
-                  cache-to: type=gha,mode=max,scope=jenkins-${{env.os}}-${{matrix.image}},ignore-error=true
+                  pull: true
+                  tags: ${{env.IMAGE}}:latest-linux
+                  platforms: linux/amd64
+                  cache-from: type=gha,scope=inbound-agent-linux
+                  cache-to: type=gha,mode=max,scope=inbound-agent-linux
+                  provenance: mode=max
+                  sbom: true
+
     merge:
         runs-on: ubuntu-24.04
+        timeout-minutes: 15
         needs:
             - docker-windows
             - docker-linux
-        strategy:
-            fail-fast: false
-            matrix:
-                image:
-                    ["inbound-agent", "unity-agent"]
+        env:
+            IMAGE: ${{secrets.DOCKERHUB_USERNAME}}/inbound-agent
         steps:
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
             - name: Login to Docker Hub
-              uses: docker/login-action@v4
+              uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  username: ${{secrets.DOCKERHUB_USERNAME}}
+                  password: ${{secrets.DOCKERHUB_TOKEN}}
             - name: Merge manifests
-              uses: Noelware/docker-manifest-action@v1
-              with:
-                  inputs: ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest
-                  tags: ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-linux, ${{secrets.DOCKERHUB_USERNAME}}/${{matrix.image}}:latest-windows
-                  push: true
-                  fallback: true
+              run: |
+                  docker buildx imagetools create \
+                    --tag "${IMAGE}:latest" \
+                    "${IMAGE}:latest-linux" \
+                    "${IMAGE}:latest-windows"
+            - name: Verify merged manifest
+              run: |
+                  manifest="$(docker buildx imagetools inspect "${IMAGE}:latest" --raw)"
+                  jq -e '
+                    any(.manifests[]; .platform.os == "linux" and .platform.architecture == "amd64") and
+                    any(.manifests[]; .platform.os == "windows" and .platform.architecture == "amd64")
+                  ' <<< "${manifest}"
+                  docker buildx imagetools inspect "${IMAGE}:latest"
