@@ -15,119 +15,20 @@ on:
 permissions:
     contents: read
 
-concurrency:
-    group: docker-publish
-    cancel-in-progress: false
-
 jobs:
-    docker-windows:
-        runs-on: windows-2022
-        timeout-minutes: 180
-        env:
-            IMAGE: ${{secrets.DOCKERHUB_USERNAME}}/inbound-agent
-        steps:
-            - name: Ensure Docker is running
-              shell: pwsh
-              run: |
-                  $service = Get-Service docker -ErrorAction Stop
-                  if ($service.Status -ne 'Running') {
-                    Start-Service docker
-                  }
+    publish:
+        strategy:
+            fail-fast: false
+            matrix:
+                variant:
+                    - tag: latest
+                      build_args: {}
 
-                  $ready = $false
-                  for ($attempt = 1; $attempt -le 24; $attempt++) {
-                    docker info *> $null
-                    if ($LASTEXITCODE -eq 0) {
-                      $ready = $true
-                      break
-                    }
-
-                    Start-Sleep -Seconds 5
-                  }
-
-                  if (-not $ready) {
-                    Get-Service docker
-                    throw "Docker daemon not ready after 120 seconds"
-                  }
-
-                  docker version
-            - name: Checkout
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            - name: Login to Docker Hub
-              uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4
-              with:
-                  username: ${{secrets.DOCKERHUB_USERNAME}}
-                  password: ${{secrets.DOCKERHUB_TOKEN}}
-            - name: Restore Windows image cache
-              continue-on-error: true
-              run: docker image pull "${env:IMAGE}:latest-windows"
-            - name: Build inbound-agent:latest-windows
-              run: >-
-                  docker build --isolation=hyperv
-                  --pull
-                  --cache-from "${env:IMAGE}:latest-windows"
-                  --file windows/Dockerfile
-                  --tag "${env:IMAGE}:latest-windows"
-                  windows
-            - name: Push inbound-agent:latest-windows
-              run: docker image push "${env:IMAGE}:latest-windows"
-
-    docker-linux:
-        runs-on: ubuntu-24.04
-        timeout-minutes: 90
-        env:
-            IMAGE: ${{secrets.DOCKERHUB_USERNAME}}/inbound-agent
-        steps:
-            - name: Checkout
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-            - name: Login to Docker Hub
-              uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4
-              with:
-                  username: ${{secrets.DOCKERHUB_USERNAME}}
-                  password: ${{secrets.DOCKERHUB_TOKEN}}
-            - name: Build and push inbound-agent:latest-linux
-              uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-              with:
-                  context: linux
-                  file: linux/Dockerfile
-                  push: true
-                  pull: true
-                  tags: ${{env.IMAGE}}:latest-linux
-                  platforms: linux/amd64
-                  cache-from: type=gha,scope=inbound-agent-linux
-                  cache-to: type=gha,mode=max,scope=inbound-agent-linux
-                  provenance: mode=max
-                  sbom: true
-
-    merge:
-        runs-on: ubuntu-24.04
-        timeout-minutes: 15
-        needs:
-            - docker-windows
-            - docker-linux
-        env:
-            IMAGE: ${{secrets.DOCKERHUB_USERNAME}}/inbound-agent
-        steps:
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-            - name: Login to Docker Hub
-              uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4
-              with:
-                  username: ${{secrets.DOCKERHUB_USERNAME}}
-                  password: ${{secrets.DOCKERHUB_TOKEN}}
-            - name: Merge manifests
-              run: |
-                  docker buildx imagetools create \
-                    --tag "${IMAGE}:latest" \
-                    "${IMAGE}:latest-linux" \
-                    "${IMAGE}:latest-windows"
-            - name: Verify merged manifest
-              run: |
-                  manifest="$(docker buildx imagetools inspect "${IMAGE}:latest" --raw)"
-                  jq -e '
-                    any(.manifests[]; .platform.os == "linux" and .platform.architecture == "amd64") and
-                    any(.manifests[]; .platform.os == "windows" and .platform.architecture == "amd64")
-                  ' <<< "${manifest}"
-                  docker buildx imagetools inspect "${IMAGE}:latest"
+        uses: Faulo/workflows-docker/.github/workflows/publish.yml@1
+        with:
+            image: inbound-agent
+            tag: ${{matrix.variant.tag}}
+            build_args: ${{toJSON(matrix.variant.build_args)}}
+        secrets:
+            DOCKERHUB_USERNAME: ${{secrets.DOCKERHUB_USERNAME}}
+            DOCKERHUB_TOKEN: ${{secrets.DOCKERHUB_TOKEN}}
