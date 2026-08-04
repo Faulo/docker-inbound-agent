@@ -1,4 +1,4 @@
-FROM jenkins/inbound-agent:latest-jdk21
+FROM jenkins/inbound-agent:trixie-jdk21
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DOCKER_MAJOR=29
@@ -6,8 +6,13 @@ ARG PLASTIC_MAJOR=11
 
 # Jenkins
 USER root
-WORKDIR /var
-ENV JAVA_OPTS="-Dhudson.model.DirectoryBrowserSupport.CSP=\"\""
+ENV USER=root \
+    HOME=/root \
+    AGENT_WORKDIR=/jenkins \
+    JENKINS_AGENT_WORKDIR=/jenkins \
+    JAVA_OPTS="-Dorg.jenkinsci.plugins.gitclient.Git.timeOut=60"
+WORKDIR /jenkins
+RUN mkdir -p /jenkins/workspace
 
 # Git
 RUN git config --global --add safe.directory '*'

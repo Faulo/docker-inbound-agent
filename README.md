@@ -15,7 +15,7 @@ Docker client; it does not contain or run a Docker daemon.
 
 | Variant | Dockerfile | Base image | Docker context |
 | --- | --- | --- | --- |
-| Linux | `linux/Dockerfile` | `jenkins/inbound-agent:latest-jdk21` | `linux` |
+| Linux | `linux/Dockerfile` | `jenkins/inbound-agent:trixie-jdk21` | `linux` |
 | Windows | `windows/Dockerfile` | `jenkins/inbound-agent:jdk21-windowsservercore-ltsc2019` | `windows` |
 
 Both variants provide the same agent-level capabilities:
@@ -124,6 +124,18 @@ must also see the same workspace filesystem. Jenkins detects that the agent is
 running in a container and uses `--volumes-from` to share its workspace with
 the nested build container.
 
+Configure the Jenkins node's **Remote root directory** to match the image:
+
+| Variant | Remote root | Job workspace root |
+| --- | --- | --- |
+| Linux | `/jenkins` | `/jenkins/workspace` |
+| Windows | `C:\jenkins` | `C:\jenkins\workspace` |
+
+Both `AGENT_WORKDIR` image metadata and the inbound launcher's
+`JENKINS_AGENT_WORKDIR` are set to the corresponding remote root. The
+`workspace` directory is deliberately a child of that root and is the path to
+mount when workspace persistence or host access is required.
+
 Refer to the
 [`jenkins/inbound-agent` documentation](https://github.com/jenkinsci/docker-agent)
 for the supported Jenkins connection modes and launch examples.
@@ -132,9 +144,7 @@ for the supported Jenkins connection modes and launch examples.
 
 - Linux processes run as `root`; Windows processes run as
   `ContainerAdministrator`.
-- `JAVA_OPTS` disables the Jenkins directory browser Content Security Policy.
-  This supports trusted build artifacts that contain active content, but it
-  weakens browser-side protection.
+- `JAVA_OPTS` sets the Jenkins Git client operation timeout to 60 minutes.
 - Git treats every repository path as a safe directory. This avoids ownership
   checks for host-mounted workspaces but removes that Git security boundary.
 - Linux installs Docker from Docker's signed APT repository. The Windows Unity

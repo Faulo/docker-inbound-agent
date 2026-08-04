@@ -7,8 +7,13 @@ ARG PLASTIC_MAJOR=11
 
 # Jenkins
 USER ContainerAdministrator
+ENV USER=ContainerAdministrator \
+    HOME=C:/Users/ContainerAdministrator \
+    AGENT_WORKDIR=C:/jenkins \
+    JENKINS_AGENT_WORKDIR=C:/jenkins \
+    JAVA_OPTS="-Dorg.jenkinsci.plugins.gitclient.Git.timeOut=60"
 WORKDIR C:\\jenkins
-ENV JAVA_OPTS="-Dhudson.model.DirectoryBrowserSupport.CSP=\"\""
+RUN New-Item -ItemType Directory -Path C:\\jenkins\\workspace -Force | Out-Null
 
 # Git
 RUN git config --global --add safe.directory *
@@ -18,11 +23,13 @@ ENV DOCKER_HOST=npipe:////./pipe/docker_engine
 
 ADD https://download.docker.com/win/static/stable/x86_64/ docker-versions.html
 
-RUN $dockerPattern = 'docker-(' + $env:DOCKER_MAJOR + '\.\d+\.\d+)\.zip'; \
-    $dockerVersion = [regex]::Matches((Get-Content docker-versions.html -Raw), $dockerPattern) | \
-      ForEach-Object { $_.Groups[1].Value } | Sort-Object { [version]$_ } | Select-Object -Last 1; \
-    if (-not $dockerVersion) { throw ('No Docker ' + $env:DOCKER_MAJOR + ' release found') }; \
-    $dockerUrl = 'https://download.docker.com/win/static/stable/x86_64/docker-' + $dockerVersion + '.zip'; \
+RUN $dockerPattern = 'docker-(?<version>' + $env:DOCKER_MAJOR + '\.\d+\.\d+)(?:-(?<revision>\d+))?\.zip'; \
+    $dockerRelease = [regex]::Matches((Get-Content docker-versions.html -Raw), $dockerPattern) | \
+      Sort-Object @{ Expression = { [version]$_.Groups['version'].Value } }, @{ Expression = { [int]$_.Groups['revision'].Value } } | \
+      Select-Object -Last 1; \
+    if (-not $dockerRelease) { throw ('No Docker ' + $env:DOCKER_MAJOR + ' release found') }; \
+    $dockerVersion = $dockerRelease.Groups['version'].Value; \
+    $dockerUrl = 'https://download.docker.com/win/static/stable/x86_64/' + $dockerRelease.Value; \
     curl.exe -fsSL $dockerUrl -o docker.zip; \
     if ($LASTEXITCODE -ne 0) { throw 'Failed to download Docker' }; \
     Expand-Archive -Path docker.zip -DestinationPath . -Force; \
@@ -32,7 +39,7 @@ RUN $dockerPattern = 'docker-(' + $env:DOCKER_MAJOR + '\.\d+\.\d+)\.zip'; \
     Remove-Item docker -Recurse -Force; \
     [Environment]::SetEnvironmentVariable('PATH', 'C:\\Program Files\\Docker;'+$env:PATH, [EnvironmentVariableTarget]::Machine); \
     $installedVersion = & 'C:\\Program Files\\Docker\\docker.exe' --version; \
-    if ($LASTEXITCODE -ne 0 -or $installedVersion -notmatch ('^Docker version ' + $env:DOCKER_MAJOR + '\.')) { throw ('Docker smoke check failed: ' + $installedVersion) }; \
+    if ($LASTEXITCODE -ne 0 -or $installedVersion -notmatch ('^Docker version ' + [regex]::Escape($dockerVersion) + ',')) { throw ('Unexpected Docker version: ' + $installedVersion) }; \
     $installedVersion
 
 # Unity Version Control
@@ -55,5 +62,5 @@ RUN $plasticPattern = '(?m)^Version:\s*(' + $env:PLASTIC_MAJOR + '\.\S+)\s*$'; \
     Remove-Item plastic-installer.exe,plastic-packages -Force; \
     $installedVersion = & 'C:\\Program Files\\PlasticSCM5\\client\\cm.exe' version; \
     if ($LASTEXITCODE -ne 0) { throw 'Unity Version Control smoke check failed' }; \
-    if ($installedVersion -notmatch ('^' + $env:PLASTIC_MAJOR + '\.')) { throw ('Unexpected Unity Version Control version: ' + $installedVersion) }; \
+    if ($installedVersion -notmatch ('^' + [regex]::Escape($plasticVersion) + '(?:\s|$)')) { throw ('Unexpected Unity Version Control version: ' + $installedVersion) }; \
     $installedVersion
