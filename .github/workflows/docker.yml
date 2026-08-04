@@ -35,7 +35,7 @@ jobs:
 
     publish:
         needs: configuration
-        uses: Faulo/workflows-docker/.github/workflows/publish.yml@v1
+        uses: Faulo/workflows-docker/.github/workflows/publish.yml@v1.0.2
         with:
             image: ${{needs.configuration.outputs.image}}
         secrets:
