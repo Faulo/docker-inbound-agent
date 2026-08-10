@@ -1,4 +1,5 @@
-FROM jenkins/inbound-agent:jdk21-windowsservercore-ltsc2019
+ARG OS_BASE=ltsc2019
+FROM jenkins/inbound-agent:jdk21-windowsservercore-${OS_BASE}
 
 SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell", "-NonInteractive", "-NoProfile", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
 

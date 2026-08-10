@@ -16,7 +16,8 @@ Docker client; it does not contain or run a Docker daemon.
 | Variant | Dockerfile | Base image | Docker context |
 | --- | --- | --- | --- |
 | Linux | `linux/Dockerfile` | `jenkins/inbound-agent:trixie-jdk21` | `linux` |
-| Windows | `windows/Dockerfile` | `jenkins/inbound-agent:jdk21-windowsservercore-ltsc2019` | `windows` |
+| Windows LTSC 2019 | `windows/Dockerfile` | `jenkins/inbound-agent:jdk21-windowsservercore-ltsc2019` | `windows` |
+| Windows LTSC 2022 | `windows/Dockerfile` | `jenkins/inbound-agent:jdk21-windowsservercore-ltsc2022` | `windows` |
 
 Both variants provide the same agent-level capabilities:
 
@@ -52,9 +53,9 @@ made available when the container is started.
 - A Docker client on the host.
 - A Linux Docker daemon available through the `linux` Docker context.
 - A Windows Docker daemon available through the `windows` Docker context.
-- A Windows host version compatible with the
-  `windowsservercore-ltsc2019` base image when building or running the Windows
-  variant.
+- A Windows host version compatible with the selected
+  `windowsservercore-ltsc2019` or `windowsservercore-ltsc2022` base image when
+  building or running a Windows variant.
 
 Check the daemons before building:
 
@@ -76,6 +77,14 @@ Build directly from the repository root:
 ```text
 docker --context linux build --tag tmp/inbound-agent:latest --file linux/Dockerfile linux
 docker --context windows build --tag tmp/inbound-agent:latest --file windows/Dockerfile windows
+```
+
+The Windows Dockerfile defaults to LTSC 2019. Build either Windows variant
+explicitly with its matching image tag and `OS_BASE` build argument:
+
+```text
+docker --context windows build --build-arg OS_BASE=ltsc2019 --tag tmp/inbound-agent:ltsc2019 --file windows/Dockerfile windows
+docker --context windows build --build-arg OS_BASE=ltsc2022 --tag tmp/inbound-agent:ltsc2022 --file windows/Dockerfile windows
 ```
 
 On Windows, the following interactive entry points provide the same builds and
@@ -181,8 +190,12 @@ reviewed before exposing agents to untrusted jobs.
 ## Automation
 
 The GitHub Actions workflow publishes the configured image through the shared
-`Faulo/workflows-docker` workflow. It runs when either Dockerfile changes, can
-be started manually, and runs monthly to pick up refreshed base images.
+`Faulo/workflows-docker` workflow. The Windows variants are named `ltsc2019`
+and `ltsc2022`, producing the platform tags `latest-ltsc2019` and
+`latest-ltsc2022`. The combined `latest` manifest lists LTSC 2022 first so
+newer compatible hosts prefer it while LTSC 2019 hosts retain a matching
+fallback. The workflow runs when either Dockerfile changes, can be started
+manually, and runs monthly to pick up refreshed base images.
 
 The shared workflow persists Linux BuildKit layers in the GitHub Actions cache.
 For Windows, it pulls the previously published platform image and passes it to

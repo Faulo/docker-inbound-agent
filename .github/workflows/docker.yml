@@ -35,9 +35,14 @@ jobs:
 
     publish:
         needs: configuration
-        uses: Faulo/workflows-docker/.github/workflows/publish.yml@v1.0.2
+        uses: Faulo/workflows-docker/.github/workflows/publish.yml@v1
         with:
             image: ${{needs.configuration.outputs.image}}
+            windows_variants: >-
+                [
+                  {"tag":"ltsc2022","build_args":{"OS_BASE":"ltsc2022"}},
+                  {"tag":"ltsc2019","build_args":{"OS_BASE":"ltsc2019"}}
+                ]
         secrets:
             DOCKERHUB_USERNAME: ${{secrets.DOCKERHUB_USERNAME}}
             DOCKERHUB_TOKEN: ${{secrets.DOCKERHUB_TOKEN}}
