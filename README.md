@@ -110,10 +110,31 @@ named pipe as privileged access to that Docker daemon.
 
 ## Use with Jenkins
 
-Start the image using the same connection arguments or environment variables
-supported by the upstream `jenkins/inbound-agent` image. Jenkins commonly
-provides the controller URL, agent name, and agent secret when configuring an
-inbound agent.
+The command can be omitted when the controller URL, agent secret, and agent
+name are supplied as environment variables:
+
+```yaml
+services:
+  agent:
+    image: faulo/inbound-agent:latest
+    environment:
+      JENKINS_URL: http://jenkins:8080/
+      JENKINS_SECRET: xxx
+      JENKINS_AGENT_NAME: yyy
+```
+
+The inherited `jenkins/inbound-agent` entrypoint also continues to accept
+connection arguments through `command`:
+
+```yaml
+services:
+  agent:
+    image: faulo/inbound-agent:latest
+    command: ["-url", "http://jenkins:8080", "-secret", "xxx", "-name", "yyy", "-webSocket"]
+```
+
+Set `JENKINS_WEB_SOCKET: "true"` in the environment-based form when the agent
+should connect over WebSocket.
 
 In addition to the Jenkins connection settings, mount the platform's Docker
 endpoint if jobs need to invoke Docker. Any job using this image can then use
@@ -133,8 +154,9 @@ Configure the Jenkins node's **Remote root directory** to match the image:
 
 Both `AGENT_WORKDIR` image metadata and the inbound launcher's
 `JENKINS_AGENT_WORKDIR` are set to the corresponding remote root. The
-`workspace` directory is deliberately a child of that root and is the path to
-mount when workspace persistence or host access is required.
+`workspace` directory is deliberately a child of that root and is declared as
+a Docker volume in each image. It is the path to mount when workspace
+persistence or host access is required.
 
 Refer to the
 [`jenkins/inbound-agent` documentation](https://github.com/jenkinsci/docker-agent)
