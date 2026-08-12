@@ -28,6 +28,7 @@ Both variants provide the same agent-level capabilities:
 | Git and Git LFS | Yes | Yes |
 | Unity Version Control 11 CLI (`cm`) | Core client package | Client installer |
 | Docker CLI 29 | Client binary only | Client binary only |
+| PowerShell 7.6.4 (`pwsh`) | No | Yes |
 
 Docker Compose is intentionally not installed. The Jenkins Docker Pipeline
 plugin uses the Docker CLI directly and does not require Compose for

@@ -5,6 +5,8 @@ SHELL ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell", "-NonIntera
 
 ARG DOCKER_MAJOR=29
 ARG PLASTIC_MAJOR=11
+ARG POWERSHELL_VERSION=7.6.4
+ARG POWERSHELL_SHA256=80832551c52809301e6071c8bac977beb5a2f1ec953eb4db9f94deb953333793
 
 # Jenkins
 USER ContainerAdministrator
@@ -20,6 +22,24 @@ VOLUME ["C:/jenkins/workspace"]
 
 # Git
 RUN git config --global --add safe.directory *
+
+# PowerShell 7
+# The ZIP package works on Server Core and avoids installer side effects.
+RUN $archive = 'C:\\powershell.zip'; \
+    $uri = 'https://github.com/PowerShell/PowerShell/releases/download/v' + $env:POWERSHELL_VERSION + '/PowerShell-' + $env:POWERSHELL_VERSION + '-win-x64.zip?download=1'; \
+    curl.exe -fsSL -H 'Cache-Control: no-cache' $uri -o $archive; \
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to download PowerShell' }; \
+    $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash; \
+    if ($actual -ne $env:POWERSHELL_SHA256) { throw ('PowerShell SHA-256 mismatch: ' + $actual) }; \
+    $destination = 'C:\\Program Files\\PowerShell\\7'; \
+    New-Item -ItemType Directory -Path $destination -Force | Out-Null; \
+    Expand-Archive -LiteralPath $archive -DestinationPath $destination; \
+    Remove-Item -LiteralPath $archive -Force; \
+    $machinePath = [Environment]::GetEnvironmentVariable('PATH', [EnvironmentVariableTarget]::Machine); \
+    [Environment]::SetEnvironmentVariable('PATH', $destination + ';' + $machinePath, [EnvironmentVariableTarget]::Machine); \
+    $installedVersion = & "$destination\\pwsh.exe" -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'; \
+    if ($LASTEXITCODE -ne 0 -or $installedVersion -ne $env:POWERSHELL_VERSION) { throw ('Unexpected PowerShell version: ' + $installedVersion) }; \
+    $installedVersion
 
 # Docker CLI
 ENV DOCKER_HOST=npipe:////./pipe/docker_engine
