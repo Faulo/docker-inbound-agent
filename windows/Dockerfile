@@ -23,23 +23,29 @@ VOLUME ["C:/jenkins/workspace"]
 # Git
 RUN git config --global --add safe.directory *
 
-# PowerShell 7
-# The ZIP package works on Server Core and avoids installer side effects.
-RUN $archive = 'C:\\powershell.zip'; \
-    $uri = 'https://github.com/PowerShell/PowerShell/releases/download/v' + $env:POWERSHELL_VERSION + '/PowerShell-' + $env:POWERSHELL_VERSION + '-win-x64.zip?download=1'; \
-    curl.exe -fsSL -H 'Cache-Control: no-cache' $uri -o $archive; \
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to download PowerShell' }; \
-    $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash; \
-    if ($actual -ne $env:POWERSHELL_SHA256) { throw ('PowerShell SHA-256 mismatch: ' + $actual) }; \
-    $destination = 'C:\\Program Files\\PowerShell\\7'; \
-    New-Item -ItemType Directory -Path $destination -Force | Out-Null; \
+ARG POWERSHELL_VERSION=7.6.4
+# The ZIP package avoids installer side effects; its release manifest supplies
+# the checksum so POWERSHELL_VERSION can select any release with these assets.
+RUN $archiveName = 'PowerShell-' + $env:POWERSHELL_VERSION + '-win-x64.zip'; \
+    $releaseUri = 'https://github.com/PowerShell/PowerShell/releases/download/v' + $env:POWERSHELL_VERSION; \
+    $archive = 'C:\powershell.zip'; \
+    $hashes = 'C:\powershell-hashes.sha256'; \
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+    (New-Object Net.WebClient).DownloadFile(($releaseUri + '/' + $archiveName), $archive); \
+    (New-Object Net.WebClient).DownloadFile(($releaseUri + '/hashes.sha256'), $hashes); \
+    $hashLines = @(Get-Content -LiteralPath $hashes | Where-Object { $_ -match ('^[0-9a-fA-F]{64} \*' + [regex]::Escape($archiveName) + '$') }); \
+    if ($hashLines.Count -ne 1) { throw "Expected one PowerShell checksum for $archiveName, found $($hashLines.Count)" }; \
+    $expectedHash = ($hashLines[0] -split '\s+', 2)[0]; \
+    $actualHash = (Get-FileHash -Algorithm SHA256 $archive).Hash; \
+    if ($actualHash -ne $expectedHash) { throw "PowerShell package checksum mismatch: expected $expectedHash, got $actualHash" }; \
+    $destination = 'C:\Program Files\PowerShell\7'; \
+    New-Item -ItemType Directory -Force $destination | Out-Null; \
     Expand-Archive -LiteralPath $archive -DestinationPath $destination; \
-    Remove-Item -LiteralPath $archive -Force; \
-    $machinePath = [Environment]::GetEnvironmentVariable('PATH', [EnvironmentVariableTarget]::Machine); \
-    [Environment]::SetEnvironmentVariable('PATH', $destination + ';' + $machinePath, [EnvironmentVariableTarget]::Machine); \
-    $installedVersion = & "$destination\\pwsh.exe" -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'; \
-    if ($LASTEXITCODE -ne 0 -or $installedVersion -ne $env:POWERSHELL_VERSION) { throw ('Unexpected PowerShell version: ' + $installedVersion) }; \
-    $installedVersion
+    Remove-Item -LiteralPath $archive, $hashes; \
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine'); \
+    [Environment]::SetEnvironmentVariable('Path', $destination + ';' + $machinePath, 'Machine'); \
+    & "$destination\pwsh.exe" -NoLogo -NoProfile -Command 'if ($PSVersionTable.PSVersion.ToString() -ne $env:POWERSHELL_VERSION) { exit 1 }'; \
+    if ($LASTEXITCODE -ne 0) { throw 'PowerShell smoke check failed' }
 
 # Docker CLI
 ENV DOCKER_HOST=npipe:////./pipe/docker_engine
