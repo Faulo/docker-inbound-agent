@@ -40,8 +40,7 @@ jobs:
             image: ${{needs.configuration.outputs.image}}
             windows_variants: >-
                 [
-                  {"tag":"ltsc2022","build_args":{"OS_BASE":"ltsc2022"}},
-                  {"tag":"ltsc2019","build_args":{"OS_BASE":"ltsc2019"}}
+                  {"tag":"windows-ltsc2019","build_args":{"OS_BASE":"ltsc2019"}}
                 ]
         secrets:
             DOCKERHUB_USERNAME: ${{secrets.DOCKERHUB_USERNAME}}
