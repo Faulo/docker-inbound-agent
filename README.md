@@ -71,21 +71,21 @@ The commands must report `linux` and `windows`, respectively.
 
 The project configuration in `.env` sets the image name. With the repository's
 default configuration, local builds are tagged as
-`tmp/inbound-agent:latest`.
+`tmp/jenkins-agent:latest`.
 
 Build directly from the repository root:
 
 ```text
-docker --context linux build --tag tmp/inbound-agent:latest --file linux/Dockerfile linux
-docker --context windows build --tag tmp/inbound-agent:latest --file windows/Dockerfile windows
+docker --context linux build --tag tmp/jenkins-agent:latest --file linux/Dockerfile linux
+docker --context windows build --tag tmp/jenkins-agent:latest --file windows/Dockerfile windows
 ```
 
 The Windows Dockerfile defaults to LTSC 2019. Build either Windows variant
 explicitly with its matching image tag and `OS_BASE` build argument:
 
 ```text
-docker --context windows build --build-arg OS_BASE=ltsc2019 --tag tmp/inbound-agent:ltsc2019 --file windows/Dockerfile windows
-docker --context windows build --build-arg OS_BASE=ltsc2022 --tag tmp/inbound-agent:ltsc2022 --file windows/Dockerfile windows
+docker --context windows build --build-arg OS_BASE=ltsc2019 --tag tmp/jenkins-agent:ltsc2019 --file windows/Dockerfile windows
+docker --context windows build --build-arg OS_BASE=ltsc2022 --tag tmp/jenkins-agent:ltsc2022 --file windows/Dockerfile windows
 ```
 
 On Windows, the following interactive entry points provide the same builds and
@@ -126,7 +126,7 @@ name are supplied as environment variables:
 ```yaml
 services:
   agent:
-    image: faulo/inbound-agent:latest
+    image: faulo/jenkins-agent:latest
     environment:
       JENKINS_URL: http://jenkins:8080/
       JENKINS_SECRET: xxx
@@ -139,7 +139,7 @@ connection arguments through `command`:
 ```yaml
 services:
   agent:
-    image: faulo/inbound-agent:latest
+    image: faulo/jenkins-agent:latest
     command: ["-url", "http://jenkins:8080", "-secret", "xxx", "-name", "yyy", "-webSocket"]
 ```
 
