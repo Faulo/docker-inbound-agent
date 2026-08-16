@@ -23,8 +23,8 @@ VOLUME ["C:/jenkins/workspace"]
 # Git
 RUN git config --global --add safe.directory *
 
-ARG POWERSHELL_VERSION=7.6.4
 # PowerShell
+ARG POWERSHELL_VERSION=7.6.4
 ADD https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/PowerShell-${POWERSHELL_VERSION}-win-x64.zip C:/powershell.zip
 RUN $archive = 'C:/powershell.zip'; \
     $destination = 'C:/Program Files/PowerShell/7'; \
